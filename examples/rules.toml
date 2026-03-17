@@ -1,0 +1,91 @@
+# Example aycicdiff rules config file.
+#
+# This file extends the built-in rules. Place your customizations here
+# and pass via: aycicdiff --rules rules.toml ...
+#
+# Use `aycicdiff --dump-rules` to see the full effective ruleset.
+#
+# Section kinds:
+#   Set         — unordered children, diffed as a set (default for all sections)
+#   OrderedList — order matters, replaced wholesale when changed
+#   Opaque      — treated as blob, replaced if any difference
+
+[sections]
+# ── Built-in "ordered" patterns (for reference, no need to repeat) ──
+#   ip access-list, ipv6 access-list, mac access-list extended
+#   access-list (numbered), ip prefix-list, ipv6 prefix-list
+#   ip as-path access-list, ip community-list, ip extcommunity-list
+#   kron policy-list
+#
+# ── Built-in "opaque" patterns ──
+#   banner, crypto pki certificate
+
+# Additional ordered patterns (regex, case-insensitive, matched against section header):
+ordered = [
+    # Uncomment any you need:
+    # '(?i)^ip sla\b',                 # IP SLA entries if order matters
+]
+
+# Additional opaque patterns:
+opaque = [
+    # '(?i)^macro name\b',            # Macro definitions
+]
+
+# Override a built-in classification to Set (takes priority over ordered/opaque):
+set = [
+    # '(?i)^ip access-list standard\b',  # Treat standard ACLs as unordered
+]
+
+# ── Known IOS section-creating commands (all default to Set) ──
+# These all create indented child blocks in show run. They are already
+# handled correctly as Set sections by the parser. Listed here for
+# reference when deciding what to reclassify:
+#
+# Routing:        router bgp/ospf/eigrp/rip/isis, address-family
+# Interfaces:     interface, controller
+# Lines:          line con/vty/aux
+# VRF:            vrf definition, ip vrf
+# QoS:            class-map, policy-map
+# Security:       crypto map/isakmp/ikev2/gdoi, ip inspect
+# ACL (sections): ip access-list, ipv6 access-list
+# Prefix lists:   ip prefix-list, ipv6 prefix-list
+# Route filtering: route-map
+# DHCP:           ip dhcp pool
+# NTP:            ntp (when sub-commands present)
+# SNMP:           snmp-server (some sub-modes)
+# Voice:          voice service voip, dial-peer, telephony-service
+# Spanning tree:  spanning-tree (leaf commands mostly)
+# VLAN:           vlan
+# AAA:            aaa group server
+# MPLS:           mpls ldp
+# L2VPN:          l2vpn, bridge-domain
+# Redundancy:     redundancy
+# Archive:        archive
+# Object tracking: track
+# Control plane:  control-plane
+# Management:     management
+# Time range:     time-range
+# IP SLA:         ip sla
+# Event manager:  event manager applet
+# Flow/NetFlow:   flow exporter/monitor/record
+# Wireless:       wlan, ap-group, ap-name
+
+
+[singletons]
+# Additional keywords where identity = keyword prefix only.
+keywords = [
+    # "ip default-network",
+]
+
+[negation]
+# Additional negation pairs: [command, its_negated_form].
+# Both directions are registered automatically.
+pairs = [
+    # ["switchport", "no switchport"],
+]
+
+[defaults]
+# Additional commands to suppress as implicit defaults.
+common = []
+ios_xe = []
+ios_classic = []

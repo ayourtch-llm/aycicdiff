@@ -28,6 +28,16 @@ pub enum DiffAction {
     },
 }
 
+impl DiffAction {
+    /// If this is an `Add(Leaf)`, return the leaf text. Useful in tests.
+    pub fn as_add_leaf_text(&self) -> Option<&str> {
+        match self {
+            DiffAction::Add(ConfigNode::Leaf(l)) => Some(&l.text),
+            _ => None,
+        }
+    }
+}
+
 impl DiffTree {
     pub fn new() -> Self {
         DiffTree {

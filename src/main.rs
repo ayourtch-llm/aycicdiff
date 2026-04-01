@@ -50,8 +50,14 @@ struct Cli {
     /// full target config instead of incremental changes.
     /// Also re-emits global commands (e.g. "no passive-interface") that may
     /// be reset by the default interface command.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "bounce_changed_interfaces")]
     rebuild_changed_interfaces: bool,
+
+    /// Bounce changed physical interfaces: keep the incremental diff but wrap
+    /// it in shutdown / no shutdown to temporarily bring the interface down
+    /// during reconfiguration (only if the target state is not shutdown).
+    #[arg(long, conflicts_with = "rebuild_changed_interfaces")]
+    bounce_changed_interfaces: bool,
 }
 
 fn read_input(path: &str) -> Result<String, io::Error> {
@@ -110,7 +116,8 @@ fn main() {
     });
 
     let options = DeltaOptions {
-        bounce_interfaces: cli.rebuild_changed_interfaces,
+        rebuild_changed_interfaces: cli.rebuild_changed_interfaces,
+        bounce_changed_interfaces: cli.bounce_changed_interfaces,
     };
 
     let delta = aycicdiff::generate_delta_with_rules(

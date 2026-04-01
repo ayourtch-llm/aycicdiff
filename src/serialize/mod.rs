@@ -6,7 +6,7 @@ pub mod negation;
 use crate::diff::diff_model::DiffTree;
 use crate::model::config_tree::ConfigTree;
 use crate::rules::RulesConfig;
-use bounce::apply_bounce;
+use bounce::{apply_bounce, apply_bounce_changed};
 use dependency::topological_sort;
 use emitter::emit_delta;
 
@@ -20,9 +20,9 @@ pub fn serialize_delta(diff: &DiffTree, rules: &RulesConfig) -> String {
     emit_delta(&sorted_diff, &negation_map)
 }
 
-/// Serialize with bounce-interfaces: physical interfaces with changes get
+/// Serialize with rebuild-changed-interfaces: physical interfaces with changes get
 /// `default interface X` + shutdown + full target config instead of incremental diff.
-pub fn serialize_delta_bounce(
+pub fn serialize_delta_rebuild(
     diff: &DiffTree,
     target: &ConfigTree,
     rules: &RulesConfig,
@@ -33,5 +33,21 @@ pub fn serialize_delta_bounce(
     let sorted_diff = DiffTree {
         actions: sorted_actions,
     };
+    emit_delta(&sorted_diff, &negation_map)
+}
+
+/// Serialize with bounce-changed-interfaces: keep incremental diff but wrap
+/// changed physical interfaces in shutdown/no shutdown if target is not shutdown.
+pub fn serialize_delta_bounce_changed(
+    diff: &DiffTree,
+    target: &ConfigTree,
+    rules: &RulesConfig,
+) -> String {
+    let bounced_actions = apply_bounce_changed(diff.actions.clone(), target);
+    let sorted_actions = topological_sort(bounced_actions);
+    let sorted_diff = DiffTree {
+        actions: sorted_actions,
+    };
+    let negation_map = rules.negation_map();
     emit_delta(&sorted_diff, &negation_map)
 }

@@ -12,10 +12,14 @@ use rules::RulesConfig;
 /// Options controlling delta generation behavior.
 #[derive(Debug, Clone, Default)]
 pub struct DeltaOptions {
-    /// When true, physical interfaces with changes are bounced:
+    /// When true, physical interfaces with changes are fully rebuilt:
     /// `default interface X` + shutdown + full target config,
     /// instead of incremental changes.
-    pub bounce_interfaces: bool,
+    pub rebuild_changed_interfaces: bool,
+    /// When true, physical interfaces with changes are temporarily bounced:
+    /// incremental diff is wrapped in shutdown / no shutdown if the target
+    /// state is not shutdown.
+    pub bounce_changed_interfaces: bool,
 }
 
 /// High-level API: generate a config delta from running config to target config.
@@ -58,8 +62,10 @@ pub fn generate_delta_with_rules(
 
     let diff = diff::diff_configs(&current, &target, rules);
 
-    if options.bounce_interfaces {
-        serialize::serialize_delta_bounce(&diff, &target, rules)
+    if options.rebuild_changed_interfaces {
+        serialize::serialize_delta_rebuild(&diff, &target, rules)
+    } else if options.bounce_changed_interfaces {
+        serialize::serialize_delta_bounce_changed(&diff, &target, rules)
     } else {
         serialize::serialize_delta(&diff, rules)
     }

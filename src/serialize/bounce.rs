@@ -238,30 +238,27 @@ pub fn apply_bounce_changed(
                 }
             }
 
-            // Emit a separate section to shut the interface down first.
-            result.push(DiffAction::ModifySection {
-                header: header.clone(),
-                kind,
-                child_actions: vec![DiffAction::Add(ConfigNode::Leaf(
-                    crate::model::config_tree::ConfigLeaf::new("shutdown"),
-                ))],
-            });
-
-            // Then emit the incremental diff (minus shutdown/no-shutdown)
-            // followed by no shutdown to bring the interface back up.
-            let mut filtered: Vec<DiffAction> = child_actions
-                .iter()
-                .filter(|a| !is_shutdown_action(a))
-                .cloned()
-                .collect();
-            filtered.push(DiffAction::Add(ConfigNode::Leaf(
+            // Build wrapped child actions: remove "no shutdown" (rendered as
+            // "shutdown" via negation) + filtered diff + add "no shutdown".
+            // The Remove sorts with other removals in the emitter, so shutdown
+            // naturally appears first without needing a separate section entry.
+            let mut wrapped = Vec::with_capacity(child_actions.len() + 2);
+            wrapped.push(DiffAction::Remove(ConfigNode::Leaf(
+                crate::model::config_tree::ConfigLeaf::new("no shutdown"),
+            )));
+            for a in child_actions {
+                if !is_shutdown_action(a) {
+                    wrapped.push(a.clone());
+                }
+            }
+            wrapped.push(DiffAction::Add(ConfigNode::Leaf(
                 crate::model::config_tree::ConfigLeaf::new("no shutdown"),
             )));
 
             result.push(DiffAction::ModifySection {
                 header: header.clone(),
                 kind,
-                child_actions: filtered,
+                child_actions: wrapped,
             });
         } else {
             result.push(action);
@@ -435,24 +432,21 @@ interface GigabitEthernet0/0
 
         let result = apply_bounce_changed(actions, &target);
 
-        // First: separate section entry to shut interface down
-        assert_eq!(result.len(), 2);
+        // Single ModifySection with shutdown (as Remove "no shutdown") first,
+        // then the filtered diff, then "no shutdown" at the end.
+        assert_eq!(result.len(), 1);
         if let DiffAction::ModifySection { child_actions, .. } = &result[0] {
-            assert_eq!(child_actions.len(), 1);
-            assert_eq!(child_actions[0].as_add_leaf_text(), Some("shutdown"));
+            // Remove("no shutdown") + Remove(ip) + Add(ip) + Add("no shutdown")
+            assert_eq!(child_actions.len(), 4);
+            // First: Remove "no shutdown" — rendered as "shutdown" via negation
+            assert!(matches!(&child_actions[0], DiffAction::Remove(ConfigNode::Leaf(l)) if l.text == "no shutdown"));
+            // Then the non-shutdown diff actions
+            assert!(matches!(&child_actions[1], DiffAction::Remove(ConfigNode::Leaf(l)) if l.text == "ip address 10.0.0.1 255.255.255.0"));
+            assert_eq!(child_actions[2].as_add_leaf_text(), Some("ip address 10.0.0.2 255.255.255.0"));
+            // Last: Add "no shutdown"
+            assert_eq!(child_actions[3].as_add_leaf_text(), Some("no shutdown"));
         } else {
-            panic!("Expected ModifySection for shutdown");
-        }
-
-        // Second: incremental diff (without shutdown/no-shutdown) + no shutdown
-        if let DiffAction::ModifySection { child_actions, .. } = &result[1] {
-            // ip remove + ip add + no shutdown
-            assert_eq!(child_actions.len(), 3);
-            assert_eq!(child_actions[0].as_add_leaf_text(), None); // Remove
-            assert_eq!(child_actions[1].as_add_leaf_text(), Some("ip address 10.0.0.2 255.255.255.0"));
-            assert_eq!(child_actions[2].as_add_leaf_text(), Some("no shutdown"));
-        } else {
-            panic!("Expected ModifySection for diff");
+            panic!("Expected ModifySection");
         }
     }
 

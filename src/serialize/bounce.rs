@@ -216,53 +216,59 @@ pub fn apply_bounce_changed(
         .map(|s| (s.header.as_str(), s))
         .collect();
 
-    actions
-        .into_iter()
-        .map(|action| {
-            if let DiffAction::ModifySection {
-                ref header,
-                kind,
-                ref child_actions,
-            } = action
-            {
-                if !is_physical_interface(header) {
-                    return action;
-                }
+    let mut result = Vec::new();
 
-                // Check if target interface is shutdown — if so, no wrapping needed.
-                if let Some(ts) = target_intf_map.get(header.as_str()) {
-                    if target_is_shutdown(ts) {
-                        return action;
-                    }
-                }
-
-                // Wrap: prepend shutdown, keep original child actions (minus any
-                // shutdown/no-shutdown changes which the wrapper subsumes),
-                // then append no shutdown.
-                let filtered: Vec<DiffAction> = child_actions
-                    .iter()
-                    .filter(|a| !is_shutdown_action(a))
-                    .cloned()
-                    .collect();
-                let mut wrapped = Vec::with_capacity(filtered.len() + 2);
-                wrapped.push(DiffAction::Add(ConfigNode::Leaf(
-                    crate::model::config_tree::ConfigLeaf::new("shutdown"),
-                )));
-                wrapped.extend(filtered);
-                wrapped.push(DiffAction::Add(ConfigNode::Leaf(
-                    crate::model::config_tree::ConfigLeaf::new("no shutdown"),
-                )));
-
-                DiffAction::ModifySection {
-                    header: header.clone(),
-                    kind,
-                    child_actions: wrapped,
-                }
-            } else {
-                action
+    for action in actions {
+        if let DiffAction::ModifySection {
+            ref header,
+            kind,
+            ref child_actions,
+        } = action
+        {
+            if !is_physical_interface(header) {
+                result.push(action);
+                continue;
             }
-        })
-        .collect()
+
+            // Check if target interface is shutdown — if so, no wrapping needed.
+            if let Some(ts) = target_intf_map.get(header.as_str()) {
+                if target_is_shutdown(ts) {
+                    result.push(action);
+                    continue;
+                }
+            }
+
+            // Emit a separate section to shut the interface down first.
+            result.push(DiffAction::ModifySection {
+                header: header.clone(),
+                kind,
+                child_actions: vec![DiffAction::Add(ConfigNode::Leaf(
+                    crate::model::config_tree::ConfigLeaf::new("shutdown"),
+                ))],
+            });
+
+            // Then emit the incremental diff (minus shutdown/no-shutdown)
+            // followed by no shutdown to bring the interface back up.
+            let mut filtered: Vec<DiffAction> = child_actions
+                .iter()
+                .filter(|a| !is_shutdown_action(a))
+                .cloned()
+                .collect();
+            filtered.push(DiffAction::Add(ConfigNode::Leaf(
+                crate::model::config_tree::ConfigLeaf::new("no shutdown"),
+            )));
+
+            result.push(DiffAction::ModifySection {
+                header: header.clone(),
+                kind,
+                child_actions: filtered,
+            });
+        } else {
+            result.push(action);
+        }
+    }
+
+    result
 }
 
 #[cfg(test)]
@@ -429,18 +435,24 @@ interface GigabitEthernet0/0
 
         let result = apply_bounce_changed(actions, &target);
 
-        // Should still be a single ModifySection
-        assert_eq!(result.len(), 1);
+        // First: separate section entry to shut interface down
+        assert_eq!(result.len(), 2);
         if let DiffAction::ModifySection { child_actions, .. } = &result[0] {
-            // shutdown + ip remove + ip add + no shutdown
-            // (original shutdown/no-shutdown actions are filtered out)
-            assert_eq!(child_actions.len(), 4);
+            assert_eq!(child_actions.len(), 1);
             assert_eq!(child_actions[0].as_add_leaf_text(), Some("shutdown"));
-            assert_eq!(child_actions[1].as_add_leaf_text(), None); // Remove
-            assert_eq!(child_actions[2].as_add_leaf_text(), Some("ip address 10.0.0.2 255.255.255.0"));
-            assert_eq!(child_actions[3].as_add_leaf_text(), Some("no shutdown"));
         } else {
-            panic!("Expected ModifySection");
+            panic!("Expected ModifySection for shutdown");
+        }
+
+        // Second: incremental diff (without shutdown/no-shutdown) + no shutdown
+        if let DiffAction::ModifySection { child_actions, .. } = &result[1] {
+            // ip remove + ip add + no shutdown
+            assert_eq!(child_actions.len(), 3);
+            assert_eq!(child_actions[0].as_add_leaf_text(), None); // Remove
+            assert_eq!(child_actions[1].as_add_leaf_text(), Some("ip address 10.0.0.2 255.255.255.0"));
+            assert_eq!(child_actions[2].as_add_leaf_text(), Some("no shutdown"));
+        } else {
+            panic!("Expected ModifySection for diff");
         }
     }
 

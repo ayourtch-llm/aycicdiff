@@ -9,6 +9,15 @@ use model::config_tree::ConfigTree;
 use model::version_info::VersionInfo;
 use rules::RulesConfig;
 
+/// Options controlling delta generation behavior.
+#[derive(Debug, Clone, Default)]
+pub struct DeltaOptions {
+    /// When true, physical interfaces with changes are bounced:
+    /// `default interface X` + shutdown + full target config,
+    /// instead of incremental changes.
+    pub bounce_interfaces: bool,
+}
+
 /// High-level API: generate a config delta from running config to target config.
 ///
 /// The returned string can be applied via `copy file run` to transform the
@@ -18,7 +27,13 @@ pub fn generate_delta(
     target_config: &str,
     show_version: Option<&str>,
 ) -> String {
-    generate_delta_with_rules(running_config, target_config, show_version, &RulesConfig::builtin())
+    generate_delta_with_rules(
+        running_config,
+        target_config,
+        show_version,
+        &RulesConfig::builtin(),
+        &DeltaOptions::default(),
+    )
 }
 
 /// High-level API with custom rules configuration.
@@ -27,6 +42,7 @@ pub fn generate_delta_with_rules(
     target_config: &str,
     show_version: Option<&str>,
     rules: &RulesConfig,
+    options: &DeltaOptions,
 ) -> String {
     let version_info = show_version
         .map(version::parser::parse_show_version)
@@ -41,7 +57,12 @@ pub fn generate_delta_with_rules(
     filter_defaults(&mut target, &version_info, rules);
 
     let diff = diff::diff_configs(&current, &target, rules);
-    serialize::serialize_delta(&diff, rules)
+
+    if options.bounce_interfaces {
+        serialize::serialize_delta_bounce(&diff, &target, rules)
+    } else {
+        serialize::serialize_delta(&diff, rules)
+    }
 }
 
 /// Remove commands from the tree that are known defaults for this version.

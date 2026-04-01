@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::process;
 
 use aycicdiff::rules::RulesConfig;
+use aycicdiff::DeltaOptions;
 
 /// Cisco IOS/IOS-XE config diff utility.
 ///
@@ -44,6 +45,13 @@ struct Cli {
     /// Dump the effective rules (built-in + user) and exit
     #[arg(long)]
     dump_rules: bool,
+
+    /// Rebuild changed physical interfaces: emit "default interface X" + shutdown +
+    /// full target config instead of incremental changes.
+    /// Also re-emits global commands (e.g. "no passive-interface") that may
+    /// be reset by the default interface command.
+    #[arg(long)]
+    rebuild_changed_interfaces: bool,
 }
 
 fn read_input(path: &str) -> Result<String, io::Error> {
@@ -101,11 +109,16 @@ fn main() {
         })
     });
 
+    let options = DeltaOptions {
+        bounce_interfaces: cli.rebuild_changed_interfaces,
+    };
+
     let delta = aycicdiff::generate_delta_with_rules(
         &running,
         &target,
         show_version.as_deref(),
         &rules,
+        &options,
     );
 
     if cli.verbose || cli.dry_run {
